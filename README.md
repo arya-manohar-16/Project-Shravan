@@ -22,25 +22,24 @@ The system captures user gestures through a camera, processes them using AI mode
 ---
 
 ## 🏗️ Project Structure  
-
-<p>
-  Project-Shravan/
+<pre>
+Project-Shravan/
 │
-├── data/ # Dataset & trained models
+├── data/                # Dataset & trained models
 ├── src/
-│ ├── computer_vision/ # CV models & processing
-│ ├── hardware/ # Arduino / ESP32 code
-│ ├── backend/ # API & logic
-│ └── frontend/ # UI files
+│   ├── computer_vision/ # CV models & processing
+│   ├── hardware/        # Arduino / ESP32 code
+│   ├── backend/         # API & logic
+│   └── frontend/        # UI files
 │
-├── notebooks/ # Experimentation
-├── tests/ # Testing scripts
-├── docs/ # Documentation
+├── notebooks/           # Experimentation
+├── tests/               # Testing scripts
+├── docs/                # Documentation
 │
-├── main.py # Main execution file
-├── requirements.txt # Dependencies
+├── main.py              # Main execution file
+├── requirements.txt     # Dependencies
 └── README.md
-</p>
+</pre>
 
 
 
