@@ -23,7 +23,8 @@ The system captures user gestures through a camera, processes them using AI mode
 
 ## 🏗️ Project Structure  
 
-Project-Shravan/
+<p>
+  Project-Shravan/
 │
 ├── data/ # Dataset & trained models
 ├── src/
@@ -39,6 +40,7 @@ Project-Shravan/
 ├── main.py # Main execution file
 ├── requirements.txt # Dependencies
 └── README.md
+</p>
 
 
 
