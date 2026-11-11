@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2236">
+<title>Gesture Chair</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.3.4/dist/mqtt.min.js"></script>
+<style>
+  :root{
+    --ink:#1B2236; --panel:#262F47; --line:#3B4767; --paper:#F0F2F7; --muted:#9DA8C3;
+    --go:#34A874; --turn:#E2A929; --stop:#DB4B3E;
+    --font:'Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--ink);color:var(--paper);font-family:var(--font);-webkit-tap-highlight-color:transparent}
+  .app{height:100dvh;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:10px;
+       padding:max(10px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+  .top{display:flex;align-items:center;gap:10px}
+  .top h1{font-size:1.15rem;margin:0;flex:0 0 auto}
+  .pills{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:flex-end}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;padding:4px 9px;border:1px solid var(--line);
+        border-radius:999px;color:var(--muted);white-space:nowrap}
+  .pill::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--line)}
+  .pill[data-s=ok]{color:var(--paper)}   .pill[data-s=ok]::before{background:var(--go)}
+  .pill[data-s=wait]::before{background:var(--turn)}
+  .pill[data-s=bad]::before{background:var(--stop)}
+  .gear{font:inherit;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--paper);cursor:pointer;font-size:1.1rem}
+
+  .stage{position:relative;flex:1 1 auto;min-height:0;background:#0F1424;border-radius:14px;overflow:hidden}
+  .stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+  .hint{position:absolute;left:10px;right:10px;bottom:10px;padding:10px 12px;border-radius:10px;background:rgba(27,34,54,.88);
+        font-size:.92rem;line-height:1.35}
+  .hint:empty{display:none}
+
+  .readout{border-radius:14px;padding:12px 16px;background:var(--panel);transition:background-color .15s}
+  .readout[data-tone=go]{background:var(--go);color:#07281A}
+  .readout[data-tone=turn]{background:var(--turn);color:#2B2005}
+  .readout[data-tone=stop]{background:var(--stop);color:#fff}
+  .cmd{font-size:2rem;font-weight:700;line-height:1.1}
+  .sub{display:flex;gap:14px;font-size:.9rem;margin-top:4px;opacity:.9}
+
+  .primary{font:inherit;font-weight:700;font-size:1.3rem;min-height:68px;border:0;border-radius:14px;background:var(--paper);color:var(--ink);cursor:pointer}
+  .primary[data-mode=arm]{background:var(--go);color:#07281A}
+  .primary[data-mode=stop]{background:var(--stop);color:#fff}
+  .primary:disabled{opacity:.6;cursor:default}
+  :focus-visible{outline:3px solid #8DB4FF;outline-offset:2px}
+
+  dialog{width:min(92vw,440px);border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--paper);padding:18px;font-family:var(--font)}
+  dialog::backdrop{background:rgba(10,14,26,.7)}
+  dialog h2{margin:0 0 12px;font-size:1.1rem}
+  dialog label{display:block;margin:12px 0 0;font-size:.95rem}
+  dialog small{display:block;color:var(--muted);margin-top:4px;line-height:1.35}
+  dialog input,dialog select{font:inherit;width:100%;margin-top:6px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--ink);color:var(--paper)}
+  dialog input[type=range]{padding:0}
+  .row{display:flex;gap:8px}
+  .row button,dialog menu button{font:inherit;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--paper);cursor:pointer}
+  dialog menu{display:flex;justify-content:flex-end;gap:8px;padding:0;margin:18px 0 0}
+  dialog menu #save{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:700}
+  .err{color:#FF9B91;min-height:1.2em}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <h1>Gesture Chair</h1>
+    <div class="pills">
+      <span class="pill" id="pModel">Model</span>
+      <span class="pill" id="pLink">Link</span>
+      <span class="pill" id="pChair">Chair</span>
+    </div>
+    <button class="gear" id="btnSettings" aria-label="Settings">&#9881;</button>
+  </header>
+
+  <section class="stage">
+    <canvas id="view" width="640" height="480"></canvas>
+    <div class="hint" id="hint">Tap “Start camera”. Your browser will ask for camera access.</div>
+  </section>
+
+  <section class="readout" id="readout" data-tone="idle" aria-live="polite">
+    <div class="cmd" id="cmdWord">Not started</div>
+    <div class="sub"><span id="gestureName">No hand</span><span id="conf"></span><span id="fps"></span></div>
+  </section>
+
+  <button class="primary" id="btnMain" data-mode="start">Start camera</button>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <label>Link code
+      <div class="row"><input id="code" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" id="gen">Generate</button></div>
+      <small>Put the same code in the ESP8266 sketch. Anyone who has it can drive the chair, so keep it private.</small>
+      <div class="err" id="codeErr"></div>
+    </label>
+    <label>Broker
+      <select id="broker">
+        <option value="hivemq">HiveMQ public broker</option>
+        <option value="emqx">EMQX public broker</option>
+      </select>
+      <small>The ESP sketch must use the same broker.</small>
+    </label>
+    <label>Minimum confidence: <output id="confOut"></output>
+      <input type="range" id="minConf" min="0.3" max="0.95" step="0.05">
+    </label>
+    <label>Frames to confirm a move: <output id="frOut"></output>
+      <input type="range" id="confirm" min="1" max="5" step="1">
+      <small>Stop is always instant. Set to 1 to match the laptop version exactly.</small>
+    </label>
+    <menu>
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="save" id="save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+/* ============================================================
+   CONFIG: copy these two from your app_test_final.py / label CSV
+   ============================================================ */
+const CONFIG = {
+  labels: ["Forward", "Stop", "Backward", "Right", "Left"],      // keypoint_classifier_label.csv order
+  commandMap: { 0: "F", 1: "S", 2: "B", 3: "R", 4: "L" },        // GESTURE_COMMAND_MAP
+  brokers: {
+    hivemq: "wss://broker.hivemq.com:8884/mqtt",
+    emqx:   "wss://broker.emqx.io:8084/mqtt",
+  },
+  detectConf: 0.7,        // min_detection_confidence
+  trackConf: 0.5,         // min_tracking_confidence
+  heartbeatMs: 250,       // command is re-sent this often; ESP stops if it hears nothing
+};
+
+const WORD = { F: "Forward", B: "Backward", R: "Right", L: "Left", S: "Stopped" };
+const TONE = { F: "go", B: "go", R: "turn", L: "turn", S: "stop" };
+const BONES = [[2,3],[3,4],[5,6],[6,7],[7,8],[9,10],[10,11],[11,12],[13,14],[14,15],[15,16],
+               [17,18],[18,19],[19,20],[0,1],[1,2],[2,5],[5,9],[9,13],[13,17],[17,0]];
+
+const $ = id => document.getElementById(id);
+const video = document.createElement("video");
+video.setAttribute("playsinline", ""); video.muted = true;
+const canvas = $("view"), ctx = canvas.getContext("2d");
+
+/* ---------- settings ---------- */
+const settings = { code: "", broker: "hivemq", minConf: 0.6, confirm: 2 };
+try { Object.assign(settings, JSON.parse(localStorage.getItem("gesturechair") || "{}")); } catch (e) {}
+function saveSettings() { try { localStorage.setItem("gesturechair", JSON.stringify(settings)); } catch (e) {} }
+
+/* ---------- state ---------- */
+let state = "idle";          // idle | loading | ready
+let armed = false;           // commands other than Stop are only sent while armed
+let net = null, landmarker = null, stream = null, client = null, wake = null;
+let current = "S", pending = "S", pendingN = 0;
+let lastChair = 0, lastVideoTime = -1, lastT = performance.now(), fps = 0, loopStarted = false;
+
+/* ============================================================
+   Classifier: plain JS forward pass of the exported Keras MLP
+   ============================================================ */
+async function loadNet() {
+  const r = await fetch("model_weights.json", { cache: "no-cache" });
+  if (!r.ok) throw new Error("model_weights.json not found. Upload it next to index.html.");
+  const j = await r.json();
+  net = j.layers.map(L => ({ W: L.W.map(row => Float32Array.from(row)), b: Float32Array.from(L.b), act: L.act }));
+}
+
+function forward(x) {
+  let a = Float32Array.from(x);
+  for (const L of net) {
+    const n = L.b.length, out = Float32Array.from(L.b);
+    for (let i = 0; i < a.length; i++) {
+      const ai = a[i]; if (ai === 0) continue;
+      const row = L.W[i];
+      for (let j = 0; j < n; j++) out[j] += ai * row[j];
+    }
+    if (L.act === "relu") { for (let j = 0; j < n; j++) out[j] = Math.max(0, out[j]); }
+    else if (L.act === "softmax") {
+      let m = -Infinity; for (let j = 0; j < n; j++) m = Math.max(m, out[j]);
+      let s = 0; for (let j = 0; j < n; j++) { out[j] = Math.exp(out[j] - m); s += out[j]; }
+      for (let j = 0; j < n; j++) out[j] /= s;
+    }
+    a = out;
+  }
+  return a;
+}
+
+/* same steps as pre_process_landmark() in app.py: wrist-relative, flatten, divide by max |value| */
+function preprocess(pts) {
+  const bx = pts[0][0], by = pts[0][1];
+  const flat = [];
+  for (let i = 0; i < pts.length; i++) flat.push(pts[i][0] - bx, pts[i][1] - by);
+  let m = 0; for (const v of flat) m = Math.max(m, Math.abs(v));
+  if (m === 0) return null;
+  return flat.map(v => v / m);
+}
+
+/* ============================================================
+   MediaPipe + camera
+   ============================================================ */
+async function loadHands() {
+  const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  const make = delegate => HandLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      delegate
+    },
+    runningMode: "VIDEO", numHands: 1,
+    minHandDetectionConfidence: CONFIG.detectConf, minHandPresenceConfidence: 0.5, minTrackingConfidence: CONFIG.trackConf,
+  });
+  try { landmarker = await make("GPU"); } catch (e) { landmarker = await make("CPU"); }
+}
+
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices) throw new Error("Open this page over HTTPS to use the camera.");
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+  video.srcObject = stream; await video.play();
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+}
+
+/* ============================================================
+   Frame loop: mirror -> landmarks -> normalize -> classify -> decide
+   ============================================================ */
+function loop() {
+  requestAnimationFrame(loop);
+  if (state !== "ready" || video.readyState < 2 || video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+
+  const W = video.videoWidth, H = video.videoHeight;
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+
+  // mirror like cv.flip(image, 1) in app.py, then detect on the mirrored frame
+  ctx.save(); ctx.scale(-1, 1); ctx.drawImage(video, -W, 0, W, H); ctx.restore();
+  const res = landmarker.detectForVideo(canvas, performance.now());
+
+  let candidate = "S", name = "No hand", conf = "";
+  if (res.landmarks && res.landmarks.length) {
+    // pixel coordinates, truncated like int(landmark.x * width) in app.py
+    const pts = res.landmarks[0].map(p => [Math.min(Math.trunc(p.x * W), W - 1), Math.min(Math.trunc(p.y * H), H - 1)]);
+    const feat = preprocess(pts);
+    if (feat) {
+      const probs = forward(feat);
+      let id = 0; for (let i = 1; i < probs.length; i++) if (probs[i] > probs[id]) id = i;
+      name = CONFIG.labels[id] !== undefined ? CONFIG.labels[id] : "Class " + id;
+      conf = Math.round(probs[id] * 100) + "%";
+      if (probs[id] >= settings.minConf) candidate = CONFIG.commandMap[id] || "S";
+      else name += " (unsure)";
+    }
+    drawHand(pts);
+  }
+  decide(candidate);
+
+  const now = performance.now(); fps = fps * 0.9 + (1000 / Math.max(1, now - lastT)) * 0.1; lastT = now;
+  $("gestureName").textContent = name; $("conf").textContent = conf; $("fps").textContent = Math.round(fps) + " fps";
+}
+
+function drawHand(pts) {
+  ctx.lineCap = "round";
+  for (const [w, col] of [[6, "#000"], [2, "#fff"]]) {
+    ctx.lineWidth = w; ctx.strokeStyle = col; ctx.beginPath();
+    for (const [a, b] of BONES) { ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]); }
+    ctx.stroke();
+  }
+  pts.forEach((p, i) => {
+    const r = [4, 8, 12, 16, 20].includes(i) ? 8 : 5;
+    ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 6.2832); ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = "#000"; ctx.stroke();
+  });
+}
+
+/* Stop is applied instantly; any move must repeat for `confirm` frames first */
+function decide(c) {
+  if (c === "S") { pending = "S"; pendingN = 0; setCurrent("S"); return; }
+  if (c === pending) pendingN++; else { pending = c; pendingN = 1; }
+  if (pendingN >= settings.confirm) setCurrent(c);
+}
+function setCurrent(c) { if (c !== current) { current = c; publish(effective()); renderCmd(); } }
+function effective() { return armed ? current : "S"; }
+
+/* ============================================================
+   MQTT link to the ESP8266 (over secure websockets)
+   ============================================================ */
+const cmdTopic = () => `gesturechair/${settings.code}/cmd`;
+const statusTopic = () => `gesturechair/${settings.code}/status`;
+
+function publish(c) { if (client && client.connected) client.publish(cmdTopic(), c, { qos: 0, retain: false }); }
+
+function connectMqtt() {
+  if (client) { try { client.end(true); } catch (e) {} client = null; }
+  setPill("pLink", "wait", "Link connecting");
+  client = mqtt.connect(CONFIG.brokers[settings.broker], {
+    clientId: "chair-web-" + Math.random().toString(16).slice(2, 10),
+    clean: true, keepalive: 15, reconnectPeriod: 2000, connectTimeout: 8000,
+    will: { topic: cmdTopic(), payload: "S", qos: 0, retain: false },   // broker sends Stop if the phone drops
+  });
+  client.on("connect", () => { setPill("pLink", "ok", "Link connected"); client.subscribe(statusTopic()); });
+  client.on("reconnect", () => setPill("pLink", "wait", "Link reconnecting"));
+  client.on("close", () => { setPill("pLink", "bad", "Link down"); if (armed) disarm("Link lost. The chair was told to stop."); });
+  client.on("error", () => setPill("pLink", "bad", "Link error"));
+  client.on("message", t => { if (t === statusTopic()) lastChair = Date.now(); });
+}
+
+setInterval(() => publish(effective()), CONFIG.heartbeatMs);          // heartbeat keeps the ESP failsafe satisfied
+setInterval(() => {
+  if (!client) return setPill("pChair", "", "Chair");
+  const online = Date.now() - lastChair < 5000;
+  setPill("pChair", online ? "ok" : (client.connected ? "wait" : "bad"), online ? "Chair online" : "Chair not seen");
+}, 1000);
+
+/* ============================================================
+   Arm / disarm
+   ============================================================ */
+function arm() {
+  if (!client || !client.connected) { setHint("The link isn’t connected yet. Wait for “Link connected”."); return; }
+  armed = true; current = "S"; pending = "S"; pendingN = 0;
+  keepAwake(); setHint(""); renderMain(); renderCmd();
+}
+function disarm(msg) {
+  armed = false; current = "S"; pending = "S"; pendingN = 0;
+  publish("S"); setTimeout(() => publish("S"), 60);
+  releaseAwake(); renderMain(); renderCmd(); if (msg) setHint(msg);
+}
+async function keepAwake() { try { wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
+function releaseAwake() { try { if (wake) wake.release(); } catch (e) {} wake = null; }
+document.addEventListener("visibilitychange", () => { if (document.hidden && armed) disarm("Paused because the page was hidden."); });
+window.addEventListener("pagehide", () => { if (armed) disarm(); });
+
+/* ============================================================
+   Start-up
+   ============================================================ */
+async function init() {
+  if (!settings.code) { openSettings(); return; }
+  state = "loading"; renderMain(); setPill("pModel", "wait", "Model loading"); setHint("Loading hand model…");
+  try {
+    await Promise.all([loadNet(), loadHands()]);
+    setPill("pModel", "ok", "Model ready");
+    setHint("Starting camera…");
+    await startCamera();
+  } catch (err) {
+    console.error(err); state = "idle"; renderMain(); setPill("pModel", "bad", "Setup failed"); setHint(friendly(err)); return;
+  }
+  connectMqtt();
+  state = "ready"; renderMain(); renderCmd();
+  setHint("Hold your hand in view. Nothing moves until you tap “Start driving”.");
+  if (!loopStarted) { loopStarted = true; requestAnimationFrame(loop); }
+}
+function friendly(e) {
+  if (e && e.name === "NotAllowedError") return "Camera access was blocked. Allow it in the browser’s site settings, then tap Start camera again.";
+  if (e && e.name === "NotFoundError") return "No camera was found on this device.";
+  return (e && e.message) ? e.message : "Something went wrong while starting.";
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+function setPill(id, s, text) { const el = $(id); el.dataset.s = s; el.textContent = text; }
+function setHint(t) { $("hint").textContent = t; }
+function renderMain() {
+  const b = $("btnMain");
+  b.disabled = false;
+  if (state === "idle")         { b.textContent = "Start camera";  b.dataset.mode = "start"; }
+  else if (state === "loading") { b.textContent = "Loading…";      b.dataset.mode = "start"; b.disabled = true; }
+  else if (!armed)              { b.textContent = "Start driving"; b.dataset.mode = "arm"; }
+  else                          { b.textContent = "Stop";          b.dataset.mode = "stop"; }
+}
+function renderCmd() {
+  const r = $("readout");
+  if (!armed) { r.dataset.tone = "idle"; $("cmdWord").textContent = state === "ready" ? "Preview only" : "Not started"; return; }
+  r.dataset.tone = TONE[current] || "stop"; $("cmdWord").textContent = WORD[current] || "Stopped";
+}
+$("btnMain").addEventListener("click", () => {
+  if (state === "idle") init();
+  else if (state === "ready") { armed ? disarm() : arm(); }
+});
+
+/* settings dialog */
+function openSettings() {
+  $("code").value = settings.code; $("broker").value = settings.broker;
+  $("minConf").value = settings.minConf; $("confirm").value = settings.confirm;
+  $("confOut").textContent = settings.minConf; $("frOut").textContent = settings.confirm;
+  $("codeErr").textContent = ""; $("dlg").showModal();
+}
+$("btnSettings").addEventListener("click", openSettings);
+$("minConf").addEventListener("input", e => $("confOut").textContent = e.target.value);
+$("confirm").addEventListener("input", e => $("frOut").textContent = e.target.value);
+$("gen").addEventListener("click", () => {
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789", r = crypto.getRandomValues(new Uint8Array(12));
+  $("code").value = Array.from(r, n => abc[n % abc.length]).join("");
+});
+$("save").addEventListener("click", e => {
+  const c = $("code").value.trim();
+  if (!/^[a-z0-9-]{8,}$/i.test(c)) { e.preventDefault(); $("codeErr").textContent = "Use at least 8 letters or digits."; return; }
+  const changed = c !== settings.code || $("broker").value !== settings.broker;
+  settings.code = c; settings.broker = $("broker").value;
+  settings.minConf = parseFloat($("minConf").value); settings.confirm = parseInt($("confirm").value, 10);
+  saveSettings();
+  if (state === "ready" && changed) { if (armed) disarm(); connectMqtt(); }
+});
+
+setPill("pModel", "", "Model"); setPill("pLink", "", "Link"); setPill("pChair", "", "Chair");
+renderMain(); renderCmd();
+</script>
+</body>
+</html>
