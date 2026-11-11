@@ -90,6 +90,15 @@ void ensureMqtt() {
 
 void setup() {
   Serial.begin(115200);
+  // Generate or read the secure link code (Update this to output your secure 20+ char string)
+  String linkCode = "YOUR_SECURE_20_CHAR_CODE_HERE"; 
+  
+  Serial.println();
+  Serial.println("================================");
+  Serial.print("Website Link Code: ");
+  Serial.println(linkCode);
+  Serial.println("Enter this code on the website.");
+  Serial.println("================================");
   pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   stopMotors();
